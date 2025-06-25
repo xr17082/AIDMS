@@ -1,0 +1,80 @@
+﻿<EditForm Model="@_registerUserModel" OnValidSubmit="SubmitAsync">
+    <FluentValidationValidator @ref="_fluentValidationValidator" />
+    <MudDialog>
+        <TitleContent>
+            @{
+                <MudText Typo="Typo.h6">
+                    <MudIcon Icon="@Icons.Material.Filled.VerifiedUser" Class="mr-3 mb-n1" />
+                    Register User
+                </MudText>
+            }
+        </TitleContent>
+        <DialogContent>
+            <MudTextField For="@(() => _registerUserModel.UserName)" @bind-Value="_registerUserModel.UserName" Label="User Name" />
+            <MudTextField For="@(() => _registerUserModel.FirstName)" @bind-Value="_registerUserModel.FirstName" Label="First Name" />
+            <MudTextField For="@(() => _registerUserModel.LastName)" @bind-Value="_registerUserModel.LastName" Label="Last Name" />
+            <MudTextField For="@(() => _registerUserModel.Email)" InputType="InputType.Email" @bind-Value="_registerUserModel.Email" Label="Email" />
+            <MudTextField For="@(() => _registerUserModel.PhoneNumber)" @bind-Value="_registerUserModel.PhoneNumber" Label="Phone Number" />
+            <MudTextField For="@(() => _registerUserModel.Password)" InputType="@_passwordInput" Adornment="Adornment.End" AdornmentIcon="@_passwordInputIcon" OnAdornmentClick="TogglePasswordVisibility" @bind-Value="_registerUserModel.Password" Label="Password" />
+            <MudTextField For="@(() => _registerUserModel.ConfirmPassword)" InputType="InputType.Password" @bind-Value="_registerUserModel.ConfirmPassword" Label="Confirm Password" />
+            <MudCheckBox @bind-Value="@_registerUserModel.ActivateUser" Label="Activate User?" Color="Color.Primary"></MudCheckBox>
+            <MudCheckBox @bind-Value="@_registerUserModel.AutoConfirmEmail" Label="Auto Confirm Email?" Color="Color.Primary"></MudCheckBox>
+        </DialogContent>
+        <DialogActions>
+            <MudButton Variant="Variant.Filled" OnClick="Cancel">Cancel</MudButton>
+            @{
+                <MudButton Variant="Variant.Filled" ButtonType="ButtonType.Submit" Disabled="@(!Validated)" Color="Color.Success">Register</MudButton>
+            }
+        </DialogActions>
+    </MudDialog>
+</EditForm>
+
+@code{
+
+    private FluentValidationValidator _fluentValidationValidator;
+    private bool Validated => _fluentValidationValidator.Validate(options => { options.IncludeAllRuleSets(); });
+    private readonly RegisterRequest _registerUserModel = new();
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task SubmitAsync()
+    {
+        var response = await _userManager.RegisterUserAsync(_registerUserModel);
+        if (response.Succeeded)
+        {
+            _snackBar.Add(response.Messages[0], Severity.Success);
+            MudDialog.Close();
+        }
+        else
+        {
+            foreach (var message in response.Messages)
+            {
+                _snackBar.Add(message, Severity.Error);
+            }
+        }
+    }
+
+    private bool _passwordVisibility;
+    private InputType _passwordInput = InputType.Password;
+    private string _passwordInputIcon = Icons.Material.Filled.VisibilityOff;
+
+    private void TogglePasswordVisibility()
+    {
+        if (_passwordVisibility)
+        {
+            _passwordVisibility = false;
+            _passwordInputIcon = Icons.Material.Filled.VisibilityOff;
+            _passwordInput = InputType.Password;
+        }
+        else
+        {
+            _passwordVisibility = true;
+            _passwordInputIcon = Icons.Material.Filled.Visibility;
+            _passwordInput = InputType.Text;
+        }
+    }
+}

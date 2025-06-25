@@ -1,0 +1,182 @@
+﻿@using AIDMS.Client.Extensions
+@using AIDMS.Client.Infrastructure.Managers.Identity.Role
+
+@using AIDMS.Shared.Constants.Application
+@using Microsoft.AspNetCore.SignalR.Client
+@using System.Net.Http.Headers
+
+<MudAppBar Elevation="25" Color="Color.Primary">
+    <MudText Typo="Typo.h6" Class="ml-4">AI DMS</MudText>
+    <MudToolBar DisableGutters="true">
+        <MudIconButton Icon="@Icons.Material.Outlined.Menu" Color="Color.Inherit" OnClick="@((e) => DrawerToggle())" Class="ml-3" />
+    </MudToolBar>
+    <MudSpacer />
+    <MudMenu Direction="Direction.Right" OffsetX="true" Dense="true" Class="mt-1 ml-4">
+        <ActivatorContent>
+            @if (string.IsNullOrEmpty(ImageDataUrl))
+            {
+                <MudAvatar Color="Color.Secondary">@FirstLetterOfName</MudAvatar>
+            }
+            else
+            {
+                <MudAvatar Image="@ImageDataUrl" Style="height:50px; width:50px;"> </MudAvatar>
+            }
+        </ActivatorContent>
+        <ChildContent>
+            <UserCard Class="mt-n2" />
+            <MudDivider Class="mb-2" />
+            <MudListItem T="string" Text="Account" Href="/account" Icon="@Icons.Material.Outlined.Person" />
+            <MudListItem T="string" Text="Logout" Icon="@Icons.Material.Filled.Logout" OnClick="Logout" />
+        </ChildContent>
+    </MudMenu>
+</MudAppBar>
+<MudDrawer @bind-Open="_drawerOpen" Elevation="25" ClipMode="DrawerClipMode.Always">
+    <NavMenu />
+</MudDrawer>
+<MudMainContent>
+    <MudContainer MaxWidth="MaxWidth.False" Class="mt-4">
+        <CascadingValue Value="hubConnection">
+            @ChildContent
+        </CascadingValue>
+    </MudContainer>
+</MudMainContent>
+
+
+@code {
+
+    [Parameter]
+    public RenderFragment ChildContent { get; set; }
+
+    private bool _drawerOpen = true;
+
+    [Inject] private IRoleManager RoleManager { get; set; }
+
+    private HubConnection hubConnection;
+
+    public bool IsConnected => hubConnection.State == HubConnectionState.Connected;
+
+    private string CurrentUserId { get; set; }
+    private string ImageDataUrl { get; set; }
+    private string FirstName { get; set; }
+    private string SecondName { get; set; }
+    private string Email { get; set; }
+    private char FirstLetterOfName { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _interceptor.RegisterEvent();
+        hubConnection = hubConnection.TryInitialize(_navigationManager, _localStorage);
+        await hubConnection.StartAsync();
+        hubConnection.On(ApplicationConstants.SignalR.ReceiveRegenerateTokens, async () =>{
+            try
+            {
+                var token = await _authenticationManager.TryForceRefreshToken();
+                if (!string.IsNullOrEmpty(token))
+                {
+                    _snackBar.Add("Refreshed Token.", Severity.Success);
+                    _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                }
+            }
+            catch(Exception)
+            {
+                _snackBar.Add("You are logged out.");
+                await _authenticationManager.Logout();
+                _navigationManager.NavigateTo("/");
+            }
+        });
+        hubConnection.On<string, string>(ApplicationConstants.SignalR.LogoutUsersByRole, async (userId, roleId) =>
+        {
+            if(CurrentUserId != userId)
+            {
+                var roleResponse = await RoleManager.GetRolesAsync();
+                if (roleResponse.Succeeded)
+                {
+                    var role = roleResponse.Data.FirstOrDefault(x => x.Id == roleId);
+                    if(role != null)
+                    {
+                        var currentUserRoleResponse = await _userManager.GetRolesAsync(CurrentUserId);
+                        if(currentUserRoleResponse.Succeeded && currentUserRoleResponse.Data.UserRoles.Any(x=> x.RoleName == role.Name))
+                        {
+                            _snackBar.Add("You are logged out beacuse the Permissions of one of your Roles have been updated.");
+                            await hubConnection.SendAsync(ApplicationConstants.SignalR.OnDisconnect, CurrentUserId);
+                            await _authenticationManager.Logout();
+                            _navigationManager.NavigateTo("/");
+                        }
+                    }
+                }
+            }
+        });
+        await hubConnection.SendAsync(ApplicationConstants.SignalR.OnConnect, CurrentUserId);
+
+        _snackBar.Add($"Welcome {FirstName}", Severity.Success);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadDataAsync();
+        }
+    }
+
+    private async Task LoadDataAsync()
+    {
+        var state = await _stateProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        if (user == null) return;
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            if (string.IsNullOrEmpty(CurrentUserId))
+            {
+                CurrentUserId = user.GetUserId();
+                FirstName = user.GetFirstName();
+                if (FirstName.Length > 0)
+                {
+                    FirstLetterOfName = FirstName[0];
+                }
+
+                SecondName = user.GetLastName();
+                Email = user.GetEmail();
+                var imageResponse = await _accountManager.GetProfilePictureAsync(CurrentUserId);
+                if (imageResponse.Succeeded)
+                {
+                    ImageDataUrl = imageResponse.Data;
+                }
+
+                var currentUserResult = await _userManager.GetAsync(CurrentUserId);
+                if (!currentUserResult.Succeeded || currentUserResult.Data == null)
+                {
+                    _snackBar.Add("You are logged out because the user with your Token has been deleted.",Severity.Error);
+                    CurrentUserId = string.Empty;
+                    ImageDataUrl = string.Empty;
+                    FirstName = string.Empty;
+                    SecondName = string.Empty;
+                    Email = string.Empty;
+                    FirstLetterOfName = char.MinValue;
+                    await _authenticationManager.Logout();
+                }
+            }
+        }
+    }
+
+    private void Logout()
+    {
+        var parameters = new DialogParameters
+        {
+            {nameof(Dialogs.Logout.ContentText), "Logout Confirmation"},
+            {nameof(Dialogs.Logout.ButtonText), "Logout"},
+            {nameof(Dialogs.Logout.Color), Color.Error},
+            {nameof(Dialogs.Logout.CurrentUserId), CurrentUserId},
+            {nameof(Dialogs.Logout.HubConnection), hubConnection}
+        };
+
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Small, FullWidth = true };
+
+        _dialogService.Show<Dialogs.Logout>("Logout", parameters, options);
+    }
+
+    private void DrawerToggle()
+    {
+        _drawerOpen = !_drawerOpen;
+    }
+}

@@ -1,0 +1,56 @@
+﻿@using System.Net.Http
+@using System.Net.Http.Json
+@using AIDMS.Client.Infrastructure.Managers.Document
+@using AIDMS.Shared.Application.Responses
+@using AutoMapper
+@using AIDMS.Client.Infrastructure.Authentication
+@using AIDMS.Client.Infrastructure.Managers.Identity.Account
+@using AIDMS.Client.Infrastructure.Managers.Identity.Authentication
+@using AIDMS.Client.Infrastructure.Managers.Identity.Users
+@using AIDMS.Client.Infrastructure.Managers.Interceptors
+@using AIDMS.Shared.Constants.Permission
+@using AIDMS.Shared.Constants.Storage
+@using AIDMS.Client.Pages.Authentication
+@using AIDMS.Client.Shared.Components
+@using AIDMS.Client.Infrastructure.Settings
+@using AIDMS.Client.Infrastructure.Managers.Audit
+@using AIDMS.Shared.Application.Responses.Audit
+@using AIDMS.Shared.Constants.Application
+@using AIDMS.Shared.Application.Requests.Identity
+@using AIDMS.Client.Extensions
+@using AIDMS.Client.Infrastructure.Managers.Identity.Role
+@using AIDMS.Shared.Application.Responses.Identity
+@using Microsoft.AspNetCore.SignalR.Client
+@using System.Security.Claims
+@using Blazored.LocalStorage
+@using Blazored.FluentValidation
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.AspNetCore.Components.WebAssembly.Http
+@using Microsoft.JSInterop
+@using MudBlazor
+@using AIDMS.Client
+@using AIDMS.Client.Shared
+@using System.IO
+@using Markdig;
+@using OllamaSharp.Models.Chat
+
+
+@attribute [Authorize]
+@inject IAuthenticationManager _authenticationManager
+@inject IAuthorizationService _authorizationService
+@inject CustomStateProvider _stateProvider
+@inject IHttpInterceptorManager _interceptor
+@inject NavigationManager _navigationManager
+@inject ILocalStorageService _localStorage
+@inject ISnackbar _snackBar
+@inject HttpClient _httpClient
+@inject IUserManager _userManager
+@inject IAccountManager _accountManager
+@inject IDocumentManager _documentManager
+@inject IDialogService _dialogService
+@inject IJSRuntime _jsRuntime;

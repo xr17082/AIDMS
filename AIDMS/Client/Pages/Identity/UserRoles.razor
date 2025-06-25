@@ -1,0 +1,127 @@
+﻿@page "/identity/user-roles/{Id}"
+@attribute [Authorize(Policy = Permissions.Roles.View)]
+@using Microsoft.AspNetCore.Components
+
+<CustomPageTitle Title="@Title" Description="@Description" />
+@if (!_loaded)
+{
+    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudTable Hover="true" Elevation="25" Items="UserRolesList" Dense="@_dense" Bordered="@_bordered" Striped="@_striped" Filter="new Func<UserRoleModel, bool>(Search)" @bind-userRole="_userRole">
+        <ToolBarContent>
+            <div class="justify-center mud-text-align-center">
+                @if (_canEditUsers)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto" OnClick="SaveAsync" ButtonType="ButtonType.Submit">Update User Roles</MudButton>
+                }
+            </div>
+            <MudSpacer />
+            @if (_canSearchRoles)
+            {
+                <MudTextField @bind-Value="_searchString" Immediate="true" FullWidth=false Placeholder="Search For User Roles" Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0 mb-3"></MudTextField>
+            }
+        </ToolBarContent>
+        <HeaderContent>
+            <MudTh><MudTableSortLabel SortBy="new Func<UserRoleModel, object>(x => x.RoleName)">Role Name</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<UserRoleModel, object>(x => x.RoleDescription)">Description</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<UserRoleModel, object>(x => x.Selected)">Status</MudTableSortLabel></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Role Name">
+                <MudHighlighter Text="@context.RoleName" HighlightedText="@_searchString" />
+            </MudTd>
+            <MudTd DataLabel="Description">
+                <MudHighlighter Text="@context.RoleDescription" HighlightedText="@_searchString" />
+            </MudTd>
+            <MudTd DataLabel="Role"><MudCheckBox @bind-Value="@context.Selected" Disabled="@(!_canEditUsers)" Color="Color.Secondary"></MudCheckBox></MudTd>
+        </RowTemplate>
+        <FooterContent>
+            <MudSwitch @bind-Value="@_dense" Color="Color.Secondary" Style="margin-left: 5px;">Dense</MudSwitch>
+            <MudSwitch @bind-Value="@_striped" Color="Color.Tertiary" Style="margin-left: 5px;">Striped</MudSwitch>
+            <MudSwitch @bind-Value="@_bordered" Color="Color.Warning" Style="margin-left: 5px;">Bordered</MudSwitch>
+        </FooterContent>
+        <PagerContent>
+            <TablePager />
+        </PagerContent>
+    </MudTable>
+}
+
+@code{
+
+    [Parameter] public string Id { get; set; }
+        [Parameter] public string Title { get; set; }
+        [Parameter] public string Description { get; set; }
+        public List<UserRoleModel> UserRolesList { get; set; } = new();
+
+        private UserRoleModel _userRole = new();
+        private string _searchString = "";
+        private bool _dense = false;
+        private bool _striped = true;
+        private bool _bordered = false;
+
+        private ClaimsPrincipal _currentUser;
+        private bool _canEditUsers;
+        private bool _canSearchRoles;
+        private bool _loaded;
+
+        protected override async Task OnInitializedAsync()
+        {
+            _currentUser = await _authenticationManager.CurrentUser();
+            _canEditUsers = (await _authorizationService.AuthorizeAsync(_currentUser, Permissions.Users.Edit)).Succeeded;
+            _canSearchRoles = (await _authorizationService.AuthorizeAsync(_currentUser, Permissions.Roles.Search)).Succeeded;
+
+            var userId = Id;
+            var result = await _userManager.GetAsync(userId);
+            if (result.Succeeded)
+            {
+                var user = result.Data;
+                if (user != null)
+                {
+                    Title = $"{user.FirstName} {user.LastName}";
+                    Description = string.Format("Manage {0} {1}'s Roles", user.FirstName, user.LastName);
+                    var response = await _userManager.GetRolesAsync(user.Id);
+                    UserRolesList = response.Data.UserRoles;
+                }
+            }
+
+            _loaded = true;
+        }
+
+        private async Task SaveAsync()
+        {
+            var request = new UpdateUserRolesRequest()
+            {
+                UserId = Id,
+                UserRoles = UserRolesList
+            };
+            var result = await _userManager.UpdateRolesAsync(request);
+            if (result.Succeeded)
+            {
+                _snackBar.Add(result.Messages[0], Severity.Success);
+                _navigationManager.NavigateTo("/identity/users");
+            }
+            else
+            {
+                foreach (var error in result.Messages)
+                {
+                    _snackBar.Add(error, Severity.Error);
+                }
+            }
+        }
+
+        private bool Search(UserRoleModel userRole)
+        {
+            if (string.IsNullOrWhiteSpace(_searchString)) return true;
+            if (userRole.RoleName?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return true;
+            }
+            if (userRole.RoleDescription?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return true;
+            }
+            return false;
+        }
+}

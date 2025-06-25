@@ -1,0 +1,49 @@
+﻿@page "/account/forgot-password"
+@layout MainLayout
+@attribute [AllowAnonymous]
+
+<EditForm Model="@_emailModel" OnValidSubmit="SubmitAsync">
+    <FluentValidationValidator @ref="_fluentValidationValidator" />
+    <MudGrid>
+        <MudItem xs="12">
+            <div class="d-flex justify-center">
+                <MudText Typo="Typo.h4">Forgot password?</MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="12">
+            <div class="d-flex justify-center">
+                <MudText Typo="Typo.subtitle2" Class="mb-n4">Enter email for password reset</MudText>
+            </div>
+        </MudItem>
+        <MudItem xs="12">
+            <MudTextField Label="E-mail" @bind-Value="_emailModel.Email" For="@(() => _emailModel.Email)" Variant="Variant.Outlined"></MudTextField>
+        </MudItem>
+        <MudItem xs="12" Class="d-flex justify-center">
+            <MudButton Variant="Variant.Filled" Disabled="@(!Validated)" Color="Color.Primary" Size="Size.Large" ButtonType="ButtonType.Submit" FullWidth="true">Reset Password</MudButton>
+        </MudItem>
+    </MudGrid>
+</EditForm>
+
+@code{
+
+    private FluentValidationValidator _fluentValidationValidator;
+    private bool Validated => _fluentValidationValidator.Validate(options => { options.IncludeAllRuleSets(); });
+    private readonly ForgotPasswordRequest _emailModel = new();
+
+    private async Task SubmitAsync()
+    {
+        var result = await _userManager.ForgotPasswordAsync(_emailModel);
+        if (result.Succeeded)
+        {
+            _snackBar.Add("Done!", Severity.Success);
+            _navigationManager.NavigateTo("/");
+        }
+        else
+        {
+            foreach (var message in result.Messages)
+            {
+                _snackBar.Add(message, Severity.Error);
+            }
+        }
+    }
+}

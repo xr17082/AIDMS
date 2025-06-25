@@ -1,0 +1,189 @@
+﻿@using System.IO
+
+<MudGrid>
+    <MudItem xs="12" sm="4" md="3">
+        <MudCard Elevation="25">
+            <MudCardContent>
+                <div class="d-flex justify-center mb-4">
+                    @if (!string.IsNullOrEmpty(@ImageDataUrl))
+                    {
+                        <MudAvatar Image="@ImageDataUrl" Style="height:250px; width:250px;"> </MudAvatar>
+                    }
+                    else
+                    {
+                        <MudAvatar Color="Color.Secondary" Style="height:250px; width:250px;">@_firstLetterOfName</MudAvatar>
+                    }
+                </div>
+                <MudText Typo="Typo.h6" Align="Align.Center">@_profileModel.FirstName @_profileModel.LastName</MudText>
+                <MudText Align="Align.Center">@_profileModel.Email</MudText>
+            </MudCardContent>
+            <MudCardActions Class="d-flex justify-center">
+                <InputFile id="fileInput" OnChange="UploadFiles" hidden />
+                <MudButton HtmlTag="label"
+                           Variant="Variant.Text"
+                           Color="Color.Primary"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.CloudUpload"
+                           for="fileInput">Upload Image
+                </MudButton>
+                @if (!string.IsNullOrEmpty(@ImageDataUrl))
+                {
+                    <MudButton Variant="Variant.Text"
+                               Color="Color.Error"
+                               StartIcon="@Icons.Material.Filled.Delete"
+                               Size="Size.Small"
+                               OnClick="DeleteAsync">Delete Image
+                    </MudButton>
+                }
+            </MudCardActions>
+        </MudCard>
+    </MudItem>
+    <MudItem xs="12" sm="8" md="9">
+        <EditForm Model="@_profileModel" OnValidSubmit="UpdateProfileAsync">
+            <FluentValidationValidator @ref="_fluentValidationValidator" />
+            <MudCard Elevation="25">
+                <MudCardHeader>
+                    <CardHeaderContent>
+                        <MudText>Profile Details</MudText>
+                    </CardHeaderContent>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudGrid>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="@_profileModel.FirstName" For="@(() => _profileModel.FirstName)" Label="First Name" Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="@_profileModel.LastName" For="@(() => _profileModel.LastName)" Label="Last Name" Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="@_profileModel.PhoneNumber" For="@(() => _profileModel.PhoneNumber)" Label="Phone Number" Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="@_profileModel.Email" Label="Email" For="@(() => _profileModel.Email)" Variant="Variant.Outlined" InputType="InputType.Email" Disabled=true />
+                        </MudItem>
+                    </MudGrid>
+                </MudCardContent>
+                <MudCardActions Class="pb-4 pl-4">
+                    <MudButton Variant="Variant.Filled" Disabled="@(!Validated)" Color="Color.Primary" Class="ml-auto" ButtonType="ButtonType.Submit">Save Changes]</MudButton>
+                </MudCardActions>
+            </MudCard>
+        </EditForm>
+    </MudItem>
+</MudGrid>
+
+@code{
+
+    private FluentValidationValidator _fluentValidationValidator;
+    private bool Validated => _fluentValidationValidator.Validate(options => { options.IncludeAllRuleSets(); });
+    private char _firstLetterOfName;
+    private readonly UpdateProfileRequest _profileModel = new();
+
+    public string UserId { get; set; }
+
+    private async Task UpdateProfileAsync()
+    {
+        var response = await _accountManager.UpdateProfileAsync(_profileModel);
+        if (response.Succeeded)
+        {
+            await _authenticationManager.Logout();
+            _snackBar.Add("Your Profile has been updated. Please Login to Continue.", Severity.Success);
+            _navigationManager.NavigateTo("/");
+        }
+        else
+        {
+            foreach (var message in response.Messages)
+            {
+                _snackBar.Add(message, Severity.Error);
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        var state = await _stateProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+        _profileModel.Email = user.GetEmail();
+        _profileModel.FirstName = user.GetFirstName();
+        _profileModel.LastName = user.GetLastName();
+        _profileModel.PhoneNumber = user.GetPhoneNumber();
+        UserId = user.GetUserId();
+        var data = await _accountManager.GetProfilePictureAsync(UserId);
+        if (data.Succeeded)
+        {
+            ImageDataUrl = data.Data;
+        }
+        if (_profileModel.FirstName.Length > 0)
+        {
+            _firstLetterOfName = _profileModel.FirstName[0];
+        }
+    }
+
+    private IBrowserFile _file;
+
+    [Parameter]
+    public string ImageDataUrl { get; set; }
+
+    private async Task UploadFiles(InputFileChangeEventArgs e)
+    {
+        _file = e.File;
+        if (_file != null)
+        {
+            var extension = Path.GetExtension(_file.Name);
+            var fileName = $"{UserId}-{Guid.NewGuid()}{extension}";
+            var format = "image/png";
+            var imageFile = await e.File.RequestImageFileAsync(format, 400, 400);
+            var buffer = new byte[imageFile.Size];
+            await imageFile.OpenReadStream().ReadAsync(buffer);
+            var request = new UpdateProfilePictureRequest { Data = buffer, FileName = fileName, Extension = extension, UploadType = AIDMS.Shared.Application.Enums.UploadType.ProfilePicture};
+            var result = await _accountManager.UpdateProfilePictureAsync(request, UserId);
+            if (result.Succeeded)
+            {
+                await _localStorage.SetItemAsync(StorageConstants.Local.UserImageURL, result.Data);
+                _snackBar.Add("Profile picture added.", Severity.Success);
+                _navigationManager.NavigateTo("/account", true);
+            }
+            else
+            {
+                foreach (var error in result.Messages)
+                {
+                    _snackBar.Add(error, Severity.Error);
+                }
+            }
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        var parameters = new DialogParameters
+        {
+            {nameof(Shared.Dialogs.DeleteConfirmation.ContentText), $"{string.Format("Do you want to delete the profile picture of {0}", _profileModel.Email)}?"}
+        };
+        var options = new DialogOptions { CloseButton = true, MaxWidth = MaxWidth.Small, FullWidth = true, BackdropClick = false };
+        var dialog = _dialogService.Show<Shared.Dialogs.DeleteConfirmation>("Delete", parameters, options);
+        var result = await dialog.Result;
+        if (!result.Canceled)
+        {
+            var request = new UpdateProfilePictureRequest { Data = null, FileName = string.Empty, UploadType = AIDMS.Shared.Application.Enums.UploadType.ProfilePicture };
+            var data = await _accountManager.UpdateProfilePictureAsync(request, UserId);
+            if (data.Succeeded)
+            {
+                await _localStorage.RemoveItemAsync(StorageConstants.Local.UserImageURL);
+                ImageDataUrl = string.Empty;
+                _snackBar.Add("Profile picture deleted.", Severity.Success);
+                _navigationManager.NavigateTo("/account", true);
+            }
+            else
+            {
+                foreach (var error in data.Messages)
+                {
+                    _snackBar.Add(error, Severity.Error);
+                }
+            }
+        }
+    }
+}

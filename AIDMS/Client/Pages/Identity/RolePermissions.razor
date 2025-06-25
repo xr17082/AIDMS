@@ -1,0 +1,196 @@
+﻿@page "/identity/role-permissions/{Id}"
+@using AIDMS.Client.Infrastructure.Mappings
+@attribute [Authorize(Policy = Permissions.RoleClaims.View)]
+
+<CustomPageTitle Title="Manage Permission" Description="@Description" />
+@if (!_loaded)
+{
+    <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudTabs Elevation="25" Rounded="true" Centered="true" ApplyEffectsToContainer="true" AlwaysShowScrollButtons="true">
+        @foreach (var group in GroupedRoleClaims.Keys)
+        {
+            var selectedRoleClaimsInGroup = GroupedRoleClaims[group].Where(c => c.Selected).ToList();
+            var allRoleClaimsInGroup = GroupedRoleClaims[group].ToList();
+
+            <MudTabPanel Text="@group" BadgeData="@($"{selectedRoleClaimsInGroup.Count}/{allRoleClaimsInGroup.Count}")" Style="padding-right: 43px;" BadgeColor="@GetGroupBadgeColor(selectedRoleClaimsInGroup.Count, allRoleClaimsInGroup.Count)">
+                <MudTable Hover="true" Elevation="25" Items="@allRoleClaimsInGroup" Dense="@_dense" Bordered="@_bordered" Striped="@_striped" Filter="new Func<RoleClaimResponse, bool>(Search)" @bind-roleClaims="_roleClaims" CommitEditTooltip="Apply" @bind-SelectedItem="_selectedItem">
+                    <ToolBarContent>
+                        @if (_canEditRolePermissions)
+                        {
+                            <div class="justify-center mud-text-align-center">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ml-auto" OnClick="SaveAsync" ButtonType="ButtonType.Submit">Update Role Permissions</MudButton>
+                            </div>
+                        }
+                        <MudSpacer />
+                        @if (_canSearchRolePermissions)
+                        {
+                            <MudTextField @bind-Value="_searchString" Immediate="true" FullWidth=false Placeholder="Search For Permissions" Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium" Class="mt-0 mb-3"></MudTextField>
+                        }
+                    </ToolBarContent>
+                    <HeaderContent>
+                        <MudTh><MudTableSortLabel SortBy="new Func<RoleClaimResponse, object>(x => x.Type)">Type</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<RoleClaimResponse, object>(x => x.Value)">Permission Name</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<RoleClaimResponse, object>(x => x.Description)">Description</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<RoleClaimResponse, object>(x => x.Selected)">Status</MudTableSortLabel></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Type">@context.Type</MudTd>
+                        <MudTd DataLabel="Permission Name">
+                            <MudHighlighter Text="@context.Value" HighlightedText="@_searchString" />
+                        </MudTd>
+                        <MudTd DataLabel="Description">
+                            <MudHighlighter Text="@context.Description" HighlightedText="@_searchString" />
+                        </MudTd>
+                        <MudTd DataLabel="Status"><MudCheckBox @bind-Value="@context.Selected" Disabled="@(!_canEditRolePermissions)" Color="Color.Secondary" /></MudTd>
+                    </RowTemplate>
+                    <RowEditingTemplate>
+                        <MudTd DataLabel="Type">@context.Type</MudTd>
+                        <MudTd DataLabel="Permission Name">@context.Value</MudTd>
+                        <MudTd DataLabel="Description">
+                            @if (_canEditRolePermissions)
+                            {
+                                <MudTextField @bind-Value="@context.Description" Margin="Margin.Dense" Disabled="@(!context.Selected)" HelperText="@(context.Selected ? "Here you can leave a comment for this permission for the current role" : "Will be saved only when selected Permission")"/>
+                            }
+                            else
+                            {
+                                @context.Description
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Status"><MudCheckBox @bind-Value="@context.Selected" Disabled="@(!_canEditRolePermissions)" Color="Color.Secondary" /></MudTd>
+                    </RowEditingTemplate>
+                    <FooterContent>
+                        <MudSwitch @bind-Value="@_dense" Color="Color.Secondary" Style="margin-left: 5px;">Dense</MudSwitch>
+                        <MudSwitch @bind-Value="@_striped" Color="Color.Tertiary" Style="margin-left: 5px;">Striped</MudSwitch>
+                        <MudSwitch @bind-Value="@_bordered" Color="Color.Warning" Style="margin-left: 5px;">Bordered</MudSwitch>
+                    </FooterContent>
+                    <PagerContent>
+                        <TablePager />
+                    </PagerContent>
+                </MudTable>
+            </MudTabPanel>
+        }
+    </MudTabs>
+}
+
+@code{
+
+    [Inject] private IRoleManager RoleManager { get; set; }
+
+    [CascadingParameter] private HubConnection HubConnection { get; set; }
+    [Parameter] public string Id { get; set; }
+    [Parameter] public string Title { get; set; }
+    [Parameter] public string Description { get; set; }
+
+    private PermissionResponse _model;
+    private Dictionary<string, List<RoleClaimResponse>> GroupedRoleClaims { get; } = new();
+    private IMapper _mapper;
+    private RoleClaimResponse _roleClaims = new();
+    private RoleClaimResponse _selectedItem = new();
+    private string _searchString = "";
+    private bool _dense = false;
+    private bool _striped = true;
+    private bool _bordered = false;
+
+    private ClaimsPrincipal _currentUser;
+    private bool _canEditRolePermissions;
+    private bool _canSearchRolePermissions;
+    private bool _loaded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUser = await _authenticationManager.CurrentUser();
+        _canEditRolePermissions = (await _authorizationService.AuthorizeAsync(_currentUser, Permissions.RoleClaims.Edit)).Succeeded;
+        _canSearchRolePermissions = (await _authorizationService.AuthorizeAsync(_currentUser, Permissions.RoleClaims.Search)).Succeeded;
+
+        await GetRolePermissionsAsync();
+        _loaded = true;
+        HubConnection = HubConnection.TryInitialize(_navigationManager, _localStorage);
+        if (HubConnection.State == HubConnectionState.Disconnected)
+        {
+            await HubConnection.StartAsync();
+        }
+    }
+
+    private async Task GetRolePermissionsAsync()
+    {
+        _mapper = new MapperConfiguration(c => { c.AddProfile<RoleProfile>(); }).CreateMapper();
+        var roleId = Id;
+        var result = await RoleManager.GetPermissionsAsync(roleId);
+        if (result.Succeeded)
+        {
+            _model = result.Data;
+            GroupedRoleClaims.Add("All Permissions", _model.RoleClaims);
+            foreach (var claim in _model.RoleClaims)
+            {
+                if (GroupedRoleClaims.ContainsKey(claim.Group))
+                {
+                    GroupedRoleClaims[claim.Group].Add(claim);
+                }
+                else
+                {
+                    GroupedRoleClaims.Add(claim.Group, new List<RoleClaimResponse> { claim });
+                }
+            }
+            if (_model != null)
+            {
+                Description = string.Format("Manage {0} {1}'s Permissions", _model.RoleId, _model.RoleName);
+            }
+        }
+        else
+        {
+            foreach (var error in result.Messages)
+            {
+                _snackBar.Add(error, Severity.Error);
+            }
+            _navigationManager.NavigateTo("/identity/roles");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        var request = _mapper.Map<PermissionResponse, PermissionRequest>(_model);
+        var result = await RoleManager.UpdatePermissionsAsync(request);
+        if (result.Succeeded)
+        {
+            _snackBar.Add(result.Messages[0], Severity.Success);
+            await HubConnection.SendAsync(ApplicationConstants.SignalR.SendRegenerateTokens);
+            await HubConnection.SendAsync(ApplicationConstants.SignalR.OnChangeRolePermissions, _currentUser.GetUserId(), request.RoleId);
+            _navigationManager.NavigateTo("/identity/roles");
+        }
+        else
+        {
+            foreach (var error in result.Messages)
+            {
+                _snackBar.Add(error, Severity.Error);
+            }
+        }
+    }
+
+    private bool Search(RoleClaimResponse roleClaims)
+    {
+        if (string.IsNullOrWhiteSpace(_searchString)) return true;
+        if (roleClaims.Value?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+        if (roleClaims.Description?.Contains(_searchString, StringComparison.OrdinalIgnoreCase) == true)
+        {
+            return true;
+        }
+        return false;
+    }
+
+    private Color GetGroupBadgeColor(int selected, int all)
+    {
+        if (selected == 0)
+            return Color.Error;
+
+        if (selected == all)
+            return Color.Success;
+
+        return Color.Info;
+    }
+}
